@@ -15,10 +15,12 @@ library(caret)
 library(tidyr)
 
 # -------------------------------
-# Step 1: Import Local CSV
+# Step 1: Load CSV from GitHub
 # -------------------------------
-file_path <- "C:/Users/WIN 10/Downloads/annual.csv"
-gold_data <- read.csv(file_path, header = TRUE, stringsAsFactors = FALSE)
+csv_url <- "https://raw.githubusercontent.com/4NUPV/DMA-Project/main/annual.csv"
+
+# Load the CSV
+gold_data <- read.csv(csv_url, header = TRUE, stringsAsFactors = FALSE)
 
 # View first rows and structure
 head(gold_data)
@@ -30,19 +32,18 @@ gold_data$Date <- as.Date(gold_data$Date)
 # -------------------------------
 # Step 2: Create Synthetic Predictors
 # -------------------------------
+# Since the CSV has only Date and Price, we create synthetic features for regression
 set.seed(123)
 gold_data$USD_Index <- runif(nrow(gold_data), 90, 110)
 gold_data$Oil_Price <- runif(nrow(gold_data), 50, 100)
 gold_data$Inflation <- runif(nrow(gold_data), 2, 8)
 gold_data$Interest_Rate <- runif(nrow(gold_data), 0.5, 5)
 
-# -------------------------------
-# Step 3: Remove missing values
-# -------------------------------
+# Remove missing values
 gold_data <- na.omit(gold_data)
 
 # -------------------------------
-# Step 4: Train-Test Split
+# Step 3: Train-Test Split
 # -------------------------------
 set.seed(123)
 train_idx <- sample(seq_len(nrow(gold_data)), 0.8 * nrow(gold_data))
@@ -50,7 +51,7 @@ train_data <- gold_data[train_idx, ]
 test_data <- gold_data[-train_idx, ]
 
 # -------------------------------
-# Step 5: Linear Regression
+# Step 4: Linear Regression
 # -------------------------------
 lm_model <- lm(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate, data = train_data)
 lm_pred <- predict(lm_model, newdata = test_data)
@@ -58,7 +59,7 @@ lm_rmse <- sqrt(mean((test_data$Price - lm_pred)^2))
 print(paste("Linear Regression RMSE:", round(lm_rmse, 3)))
 
 # -------------------------------
-# Step 6: Random Forest Regression
+# Step 5: Random Forest Regression (Non-linear)
 # -------------------------------
 rf_model <- randomForest(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate,
                          data = train_data, ntree = 200, mtry = 2, importance = TRUE)
@@ -67,14 +68,14 @@ rf_rmse <- sqrt(mean((test_data$Price - rf_pred)^2))
 print(paste("Random Forest RMSE:", round(rf_rmse, 3)))
 
 # -------------------------------
-# Step 7: Model Comparison
+# Step 6: Model Comparison
 # -------------------------------
 cat("Model Performance Comparison:\n")
 cat("Linear Regression RMSE:", round(lm_rmse, 3), "\n")
 cat("Random Forest RMSE:", round(rf_rmse, 3), "\n")
 
 # -------------------------------
-# Step 8: Visualization (Bar Graph)
+# Step 7: Visualization (Bar Graph)
 # -------------------------------
 results <- data.frame(
   Observation = 1:nrow(test_data),

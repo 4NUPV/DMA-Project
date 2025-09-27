@@ -6,52 +6,57 @@ install.packages("dplyr")
 install.packages("randomForest")
 install.packages("caret")
 install.packages("tidyr")
+install.packages("forecast")
+install.packages("readr")
 
+# -------------------------------
 # Load Libraries
+# -------------------------------
 library(ggplot2)
 library(dplyr)
 library(randomForest)
 library(caret)
 library(tidyr)
+library(forecast)
+library(readr)
 
 # -------------------------------
 # Step 1: Load CSV from GitHub
 # -------------------------------
 csv_url <- "https://raw.githubusercontent.com/4NUPV/DMA-Project/main/annual.csv"
-
-# Load the CSV
-gold_data <- read.csv(csv_url, header = TRUE, stringsAsFactors = FALSE)
-
-# View first rows and structure
-head(gold_data)
-str(gold_data)
-
-# Convert Date column to Date type
-gold_data$Date <- as.Date(gold_data$Date)
+gold_data <- read_csv(csv_url)
 
 # -------------------------------
-# Step 2: Create Synthetic Predictors
+# Step 2: Prepare Data
 # -------------------------------
-# Since the CSV has only Date and Price, we create synthetic features for regression
+gold_data$Year <- as.numeric(gold_data$Date)
+gold_data$Price <- as.numeric(gold_data$Price)
+
+# Filter data from 2000 onwards
+gold_data_recent <- gold_data[gold_data$Year >= 2000, ]
+
+# -------------------------------
+# Step 3: Create Synthetic Predictors for Regression
+# -------------------------------
 set.seed(123)
-gold_data$USD_Index <- runif(nrow(gold_data), 90, 110)
-gold_data$Oil_Price <- runif(nrow(gold_data), 50, 100)
-gold_data$Inflation <- runif(nrow(gold_data), 2, 8)
-gold_data$Interest_Rate <- runif(nrow(gold_data), 0.5, 5)
+gold_data_recent$USD_Index <- runif(nrow(gold_data_recent), 90, 110)
+gold_data_recent$Oil_Price <- runif(nrow(gold_data_recent), 50, 100)
+gold_data_recent$Inflation <- runif(nrow(gold_data_recent), 2, 8)
+gold_data_recent$Interest_Rate <- runif(nrow(gold_data_recent), 0.5, 5)
 
 # Remove missing values
-gold_data <- na.omit(gold_data)
+gold_data_recent <- na.omit(gold_data_recent)
 
 # -------------------------------
-# Step 3: Train-Test Split
+# Step 4: Train-Test Split
 # -------------------------------
 set.seed(123)
-train_idx <- sample(seq_len(nrow(gold_data)), 0.8 * nrow(gold_data))
-train_data <- gold_data[train_idx, ]
-test_data <- gold_data[-train_idx, ]
+train_idx <- sample(seq_len(nrow(gold_data_recent)), 0.8 * nrow(gold_data_recent))
+train_data <- gold_data_recent[train_idx, ]
+test_data <- gold_data_recent[-train_idx, ]
 
 # -------------------------------
-# Step 4: Linear Regression
+# Step 5: Linear Regression
 # -------------------------------
 lm_model <- lm(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate, data = train_data)
 lm_pred <- predict(lm_model, newdata = test_data)
@@ -59,7 +64,7 @@ lm_rmse <- sqrt(mean((test_data$Price - lm_pred)^2))
 print(paste("Linear Regression RMSE:", round(lm_rmse, 3)))
 
 # -------------------------------
-# Step 5: Random Forest Regression (Non-linear)
+# Step 6: Random Forest Regression (Non-linear)
 # -------------------------------
 rf_model <- randomForest(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate,
                          data = train_data, ntree = 200, mtry = 2, importance = TRUE)
@@ -68,14 +73,14 @@ rf_rmse <- sqrt(mean((test_data$Price - rf_pred)^2))
 print(paste("Random Forest RMSE:", round(rf_rmse, 3)))
 
 # -------------------------------
-# Step 6: Model Comparison
+# Step 7: Regression Model Comparison
 # -------------------------------
 cat("Model Performance Comparison:\n")
 cat("Linear Regression RMSE:", round(lm_rmse, 3), "\n")
 cat("Random Forest RMSE:", round(rf_rmse, 3), "\n")
 
 # -------------------------------
-# Step 7: Visualization (Bar Graph)
+# Step 8: Regression Bar Graph
 # -------------------------------
 results <- data.frame(
   Observation = 1:nrow(test_data),
@@ -84,14 +89,53 @@ results <- data.frame(
   Random_Forest = rf_pred
 )
 
-# Reshape for ggplot
 results_long <- pivot_longer(results, cols = c("Actual", "Linear_Regression", "Random_Forest"),
                              names_to = "Type", values_to = "Price")
 
-# Create bar graph
 ggplot(results_long, aes(x = Observation, y = Price, fill = Type)) +
   geom_bar(stat = "identity", position = "dodge") +
-  labs(title = "Gold Price Prediction: Actual vs Predicted",
+  labs(title = "Gold Price Prediction: Actual vs Predicted (Regression Models)",
        x = "Observation", y = "Gold Price (USD)") +
   scale_fill_manual(values = c("Actual" = "grey", "Linear_Regression" = "blue", "Random_Forest" = "red")) +
+  theme_minimal()
+
+# -------------------------------
+# Step 9: ARIMA Forecast for 2025-2050
+# -------------------------------
+gold_ts <- ts(gold_data_recent$Price, start = min(gold_data_recent$Year), frequency = 1)
+arima_model <- auto.arima(gold_ts)
+future_years <- 2050 - max(gold_data_recent$Year)
+gold_forecast <- forecast(arima_model, h = future_years)
+
+forecast_years <- (max(gold_data_recent$Year)+1):(max(gold_data_recent$Year)+future_years)
+forecast_df <- data.frame(
+  Year = forecast_years,
+  Predicted_Price = as.numeric(gold_forecast$mean),
+  Lower = as.numeric(gold_forecast$lower[,2]),
+  Upper = as.numeric(gold_forecast$upper[,2]),
+  Type = "Forecast"
+)
+
+set.seed(123)
+forecast_df$Predicted_Price <- forecast_df$Predicted_Price * (1 + rnorm(length(forecast_df$Predicted_Price), 0, 0.02))
+
+historical_df <- data.frame(
+  Year = gold_data_recent$Year,
+  Predicted_Price = gold_data_recent$Price,
+  Type = "Historical"
+)
+
+combined_df <- rbind(historical_df, forecast_df[, c("Year", "Predicted_Price", "Type")])
+
+# -------------------------------
+# Step 10: ARIMA Forecast Plot
+# -------------------------------
+ggplot() +
+  geom_line(data = combined_df, aes(x = Year, y = Predicted_Price, color = Type), size = 1.2) +
+  geom_ribbon(data = forecast_df, aes(x = Year, ymin = Lower, ymax = Upper), fill = "blue", alpha = 0.2) +
+  labs(title = "Gold Price: Historical & ARIMA Forecast with Fluctuations (2000-2050)",
+       x = "Year",
+       y = "Gold Price (USD per ounce)") +
+  scale_x_continuous(breaks = seq(2000, 2050, 5)) +
+  scale_color_manual(values = c("Historical" = "grey", "Forecast" = "blue")) +
   theme_minimal()

@@ -1,0 +1,96 @@
+# -------------------------------
+# Install Required Packages
+# -------------------------------
+install.packages("ggplot2")
+install.packages("dplyr")
+install.packages("randomForest")
+install.packages("caret")
+install.packages("tidyr")
+
+# Load Libraries
+library(ggplot2)
+library(dplyr)
+library(randomForest)
+library(caret)
+library(tidyr)
+
+# -------------------------------
+# Step 1: Import Local CSV
+# -------------------------------
+file_path <- "C:/Users/WIN 10/Downloads/annual.csv"
+gold_data <- read.csv(file_path, header = TRUE, stringsAsFactors = FALSE)
+
+# View first rows and structure
+head(gold_data)
+str(gold_data)
+
+# Convert Date column to Date type
+gold_data$Date <- as.Date(gold_data$Date)
+
+# -------------------------------
+# Step 2: Create Synthetic Predictors
+# -------------------------------
+set.seed(123)
+gold_data$USD_Index <- runif(nrow(gold_data), 90, 110)
+gold_data$Oil_Price <- runif(nrow(gold_data), 50, 100)
+gold_data$Inflation <- runif(nrow(gold_data), 2, 8)
+gold_data$Interest_Rate <- runif(nrow(gold_data), 0.5, 5)
+
+# -------------------------------
+# Step 3: Remove missing values
+# -------------------------------
+gold_data <- na.omit(gold_data)
+
+# -------------------------------
+# Step 4: Train-Test Split
+# -------------------------------
+set.seed(123)
+train_idx <- sample(seq_len(nrow(gold_data)), 0.8 * nrow(gold_data))
+train_data <- gold_data[train_idx, ]
+test_data <- gold_data[-train_idx, ]
+
+# -------------------------------
+# Step 5: Linear Regression
+# -------------------------------
+lm_model <- lm(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate, data = train_data)
+lm_pred <- predict(lm_model, newdata = test_data)
+lm_rmse <- sqrt(mean((test_data$Price - lm_pred)^2))
+print(paste("Linear Regression RMSE:", round(lm_rmse, 3)))
+
+# -------------------------------
+# Step 6: Random Forest Regression
+# -------------------------------
+rf_model <- randomForest(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate,
+                         data = train_data, ntree = 200, mtry = 2, importance = TRUE)
+rf_pred <- predict(rf_model, newdata = test_data)
+rf_rmse <- sqrt(mean((test_data$Price - rf_pred)^2))
+print(paste("Random Forest RMSE:", round(rf_rmse, 3)))
+
+# -------------------------------
+# Step 7: Model Comparison
+# -------------------------------
+cat("Model Performance Comparison:\n")
+cat("Linear Regression RMSE:", round(lm_rmse, 3), "\n")
+cat("Random Forest RMSE:", round(rf_rmse, 3), "\n")
+
+# -------------------------------
+# Step 8: Visualization (Bar Graph)
+# -------------------------------
+results <- data.frame(
+  Observation = 1:nrow(test_data),
+  Actual = test_data$Price,
+  Linear_Regression = lm_pred,
+  Random_Forest = rf_pred
+)
+
+# Reshape for ggplot
+results_long <- pivot_longer(results, cols = c("Actual", "Linear_Regression", "Random_Forest"),
+                             names_to = "Type", values_to = "Price")
+
+# Create bar graph
+ggplot(results_long, aes(x = Observation, y = Price, fill = Type)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Gold Price Prediction: Actual vs Predicted",
+       x = "Observation", y = "Gold Price (USD)") +
+  scale_fill_manual(values = c("Actual" = "grey", "Linear_Regression" = "blue", "Random_Forest" = "red")) +
+  theme_minimal()

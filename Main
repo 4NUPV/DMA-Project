@@ -1,141 +1,128 @@
-# -------------------------------
-# Install Required Packages
-# -------------------------------
-install.packages("ggplot2")
-install.packages("dplyr")
-install.packages("randomForest")
-install.packages("caret")
-install.packages("tidyr")
-install.packages("forecast")
-install.packages("readr")
-
-# -------------------------------
-# Load Libraries
-# -------------------------------
+library(shiny)
 library(ggplot2)
 library(dplyr)
-library(randomForest)
-library(caret)
-library(tidyr)
 library(forecast)
-library(readr)
+library(randomForest)
+library(shinythemes)       # for colorful themes
+library(shinycssloaders)   # for animated loaders
 
 # -------------------------------
-# Step 1: Load CSV from GitHub
+# Load Dataset
 # -------------------------------
 csv_url <- "https://raw.githubusercontent.com/4NUPV/DMA-Project/main/annual.csv"
-gold_data <- read_csv(csv_url)
-
-# -------------------------------
-# Step 2: Prepare Data
-# -------------------------------
+gold_data <- read.csv(csv_url)
 gold_data$Year <- as.numeric(gold_data$Date)
 gold_data$Price <- as.numeric(gold_data$Price)
-
-# Filter data from 2000 onwards
 gold_data_recent <- gold_data[gold_data$Year >= 2000, ]
 
 # -------------------------------
-# Step 3: Create Synthetic Predictors for Regression
+# UI
 # -------------------------------
-set.seed(123)
-gold_data_recent$USD_Index <- runif(nrow(gold_data_recent), 90, 110)
-gold_data_recent$Oil_Price <- runif(nrow(gold_data_recent), 50, 100)
-gold_data_recent$Inflation <- runif(nrow(gold_data_recent), 2, 8)
-gold_data_recent$Interest_Rate <- runif(nrow(gold_data_recent), 0.5, 5)
-
-# Remove missing values
-gold_data_recent <- na.omit(gold_data_recent)
-
-# -------------------------------
-# Step 4: Train-Test Split
-# -------------------------------
-set.seed(123)
-train_idx <- sample(seq_len(nrow(gold_data_recent)), 0.8 * nrow(gold_data_recent))
-train_data <- gold_data_recent[train_idx, ]
-test_data <- gold_data_recent[-train_idx, ]
-
-# -------------------------------
-# Step 5: Linear Regression
-# -------------------------------
-lm_model <- lm(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate, data = train_data)
-lm_pred <- predict(lm_model, newdata = test_data)
-lm_rmse <- sqrt(mean((test_data$Price - lm_pred)^2))
-print(paste("Linear Regression RMSE:", round(lm_rmse, 3)))
-
-# -------------------------------
-# Step 6: Random Forest Regression (Non-linear)
-# -------------------------------
-rf_model <- randomForest(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate,
-                         data = train_data, ntree = 200, mtry = 2, importance = TRUE)
-rf_pred <- predict(rf_model, newdata = test_data)
-rf_rmse <- sqrt(mean((test_data$Price - rf_pred)^2))
-print(paste("Random Forest RMSE:", round(rf_rmse, 3)))
-
-# -------------------------------
-# Step 7: Regression Model Comparison
-# -------------------------------
-cat("Model Performance Comparison:\n")
-cat("Linear Regression RMSE:", round(lm_rmse, 3), "\n")
-cat("Random Forest RMSE:", round(rf_rmse, 3), "\n")
-
-# -------------------------------
-# Step 8: Regression Bar Graph
-# -------------------------------
-results <- data.frame(
-  Observation = 1:nrow(test_data),
-  Actual = test_data$Price,
-  Linear_Regression = lm_pred,
-  Random_Forest = rf_pred
+ui <- fluidPage(
+  theme = shinytheme("cosmo"),   # try "cosmo", "superhero", "cerulean"
+  
+  tags$head(
+    tags$link(rel = "stylesheet", 
+              href = "https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css")
+  ),
+  
+  titlePanel(
+    div(class = "animate__animated animate__fadeInDown",
+        "🌟 Gold Price Prediction & Forecasting 🌟")
+  ),
+  
+  sidebarLayout(
+    sidebarPanel(
+      h4("Enter Economic Indicators"),
+      numericInput("usd", "💵 USD Index:", value = 100, min = 80, max = 120),
+      numericInput("oil", "🛢 Oil Price (USD):", value = 70, min = 30, max = 150),
+      numericInput("inflation", "📈 Inflation Rate (%):", value = 3, min = 0, max = 15),
+      numericInput("interest", "🏦 Interest Rate (%):", value = 2, min = 0, max = 10),
+      actionButton("predict", "🔮 Predict Gold Price", class = "btn btn-primary"),
+      hr(),
+      numericInput("forecast_horizon", "📅 Forecast Years Ahead:", value = 10, min = 1, max = 50),
+      actionButton("forecast", "📊 Run ARIMA Forecast", class = "btn btn-success")
+    ),
+    
+    mainPanel(
+      tabsetPanel(
+        tabPanel("Prediction Results",
+                 h3("Model Predictions"),
+                 withSpinner(verbatimTextOutput("model_results"), type = 6, color = "#FF5733")
+        ),
+        tabPanel("ARIMA Forecast",
+                 h3("Forecast Plot"),
+                 withSpinner(plotOutput("forecast_plot", height = "500px"), type = 8, color = "#337ab7")
+        )
+      )
+    )
+  )
 )
 
-results_long <- pivot_longer(results, cols = c("Actual", "Linear_Regression", "Random_Forest"),
-                             names_to = "Type", values_to = "Price")
-
-ggplot(results_long, aes(x = Observation, y = Price, fill = Type)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  labs(title = "Gold Price Prediction: Actual vs Predicted (Regression Models)",
-       x = "Observation", y = "Gold Price (USD)") +
-  scale_fill_manual(values = c("Actual" = "grey", "Linear_Regression" = "blue", "Random_Forest" = "red")) +
-  theme_minimal()
+# -------------------------------
+# SERVER
+# -------------------------------
+server <- function(input, output) {
+  
+  observeEvent(input$predict, {
+    # Train models
+    set.seed(123)
+    gold_data_recent$USD_Index <- runif(nrow(gold_data_recent), 90, 110)
+    gold_data_recent$Oil_Price <- runif(nrow(gold_data_recent), 50, 100)
+    gold_data_recent$Inflation <- runif(nrow(gold_data_recent), 2, 8)
+    gold_data_recent$Interest_Rate <- runif(nrow(gold_data_recent), 0.5, 5)
+    
+    lm_model <- lm(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate, data = gold_data_recent)
+    rf_model <- randomForest(Price ~ USD_Index + Oil_Price + Inflation + Interest_Rate,
+                             data = gold_data_recent, ntree = 200)
+    
+    new_data <- data.frame(
+      USD_Index = input$usd,
+      Oil_Price = input$oil,
+      Inflation = input$inflation,
+      Interest_Rate = input$interest
+    )
+    
+    lm_pred <- predict(lm_model, new_data)
+    rf_pred <- predict(rf_model, new_data)
+    
+    output$model_results <- renderPrint({
+      cat("✨ Linear Regression Prediction: ", round(lm_pred, 2), " USD/oz\n")
+      cat("🌲 Random Forest Prediction: ", round(rf_pred, 2), " USD/oz\n")
+    })
+  })
+  
+  observeEvent(input$forecast, {
+    gold_ts <- ts(gold_data_recent$Price, start = min(gold_data_recent$Year), frequency = 1)
+    arima_model <- auto.arima(gold_ts)
+    gold_forecast <- forecast(arima_model, h = input$forecast_horizon)
+    
+    forecast_years <- (max(gold_data_recent$Year)+1):(max(gold_data_recent$Year)+input$forecast_horizon)
+    forecast_df <- data.frame(
+      Year = forecast_years,
+      Predicted = as.numeric(gold_forecast$mean),
+      Lower = as.numeric(gold_forecast$lower[,2]),
+      Upper = as.numeric(gold_forecast$upper[,2])
+    )
+    
+    historical_df <- data.frame(
+      Year = gold_data_recent$Year,
+      Price = gold_data_recent$Price
+    )
+    
+    output$forecast_plot <- renderPlot({
+      ggplot() +
+        geom_line(data = historical_df, aes(x = Year, y = Price), color = "#444444", size = 1.2) +
+        geom_line(data = forecast_df, aes(x = Year, y = Predicted), color = "#0073e6", size = 1.2) +
+        geom_ribbon(data = forecast_df, aes(x = Year, ymin = Lower, ymax = Upper),
+                    alpha = 0.2, fill = "#66b2ff") +
+        labs(title = "🔮 Gold Price Forecast", x = "Year", y = "Gold Price (USD)") +
+        theme_minimal(base_size = 14)
+    })
+  })
+}
 
 # -------------------------------
-# Step 9: ARIMA Forecast for 2025-2050
+# Run App
 # -------------------------------
-gold_ts <- ts(gold_data_recent$Price, start = min(gold_data_recent$Year), frequency = 1)
-arima_model <- auto.arima(gold_ts)
-future_years <- 2050 - max(gold_data_recent$Year)
-gold_forecast <- forecast(arima_model, h = future_years)
-
-forecast_years <- (max(gold_data_recent$Year)+1):(max(gold_data_recent$Year)+future_years)
-forecast_df <- data.frame(
-  Year = forecast_years,
-  Predicted_Price = as.numeric(gold_forecast$mean),
-  Lower = as.numeric(gold_forecast$lower[,2]),
-  Upper = as.numeric(gold_forecast$upper[,2]),
-  Type = "Forecast"
-)
-
-set.seed(123)
-forecast_df$Predicted_Price <- forecast_df$Predicted_Price * (1 + rnorm(length(forecast_df$Predicted_Price), 0, 0.02))
-
-historical_df <- data.frame(
-  Year = gold_data_recent$Year,
-  Predicted_Price = gold_data_recent$Price,
-  Type = "Historical"
-)
-
-combined_df <- rbind(historical_df, forecast_df[, c("Year", "Predicted_Price", "Type")])
-
-# -------------------------------
-# Step 10: ARIMA Forecast Plot
-# -------------------------------
-ggplot() +
-  geom_line(data = combined_df, aes(x = Year, y = Predicted_Price, color = Type), size = 1.2) +
-  geom_ribbon(data = forecast_df, aes(x = Year, ymin = Lower, ymax = Upper), fill = "blue", alpha = 0.2) +
-  labs(title = "Gold Price: Historical & ARIMA Forecast with Fluctuations (2000-2050)",
-       x = "Year",
-       y = "Gold Price (USD per ounce)") +
-  scale_x_continuous(breaks = seq(2000, 2050, 5)) +
-  scale_color_manual(values = c("Historical" = "grey", "Forecast" = "blue")) +
-  theme_minimal()
+shinyApp(ui = ui, server = server)
